@@ -2,6 +2,7 @@
 from functools import reduce
 
 from sympy.core import S, I, pi, oo, zoo, ilcm, Mod
+from sympy.core.expr import Expr
 from sympy.core.function import Function, Derivative, ArgumentIndexError
 
 from sympy.core.containers import Tuple
@@ -9,7 +10,7 @@ from sympy.core.mul import Mul
 from sympy.core.symbol import Dummy
 
 from sympy.functions import (sqrt, exp, log, sin, cos, asin, atan,
-        sinh, cosh, asinh, acosh, atanh, acoth, Abs)
+        sinh, cosh, asinh, acosh, atanh, acoth, Abs, re)
 from sympy.utilities.iterables import default_sort_key
 
 class TupleArg(Tuple):
@@ -219,6 +220,16 @@ class hyper(TupleParametersBase):
         return Piecewise((Sum(coeff * z**n / factorial(n), (n, 0, oo)),
                          self.convergence_statement), (self, True))
 
+    def _eval_as_leading_term(self, x, logx=None, cdir=0):
+        arg = self.args[2]
+        x0 = arg.subs(x, 0)
+        if x0 is S.NaN:
+            x0 = arg.limit(x, 0, dir='-' if re(cdir).is_negative else '+')
+
+        if x0 is S.Zero:
+            return S.One
+        return super()._eval_as_leading_term(x, logx=logx, cdir=cdir)
+
     def _eval_nseries(self, x, n, logx, cdir=0):
 
         from sympy.functions import factorial, RisingFactorial
@@ -327,7 +338,7 @@ class hyper(TupleParametersBase):
     @property
     def convergence_statement(self):
         """ Return a condition on z under which the series converges. """
-        from sympy import And, Or, re, Ne, oo
+        from sympy import And, Or, Ne
         R = self.radius_of_convergence
         if R == 0:
             return False
@@ -344,12 +355,6 @@ class hyper(TupleParametersBase):
     def _eval_simplify(self, **kwargs):
         from sympy.simplify.hyperexpand import hyperexpand
         return hyperexpand(self)
-
-    def _sage_(self):
-        import sage.all as sage
-        ap = [arg._sage_() for arg in self.args[0]]
-        bq = [arg._sage_() for arg in self.args[1]]
-        return sage.hypergeometric(ap, bq, self.argument._sage_())
 
 
 class meijerg(TupleParametersBase):
@@ -645,7 +650,7 @@ class meijerg(TupleParametersBase):
         alpha = compute(self.an)
         p, q = len(self.ap), len(self.bq)
         if p == q:
-            if beta == oo or alpha == oo:
+            if oo in (alpha, beta):
                 return oo
             return 2*pi*ilcm(alpha, beta)
         elif p < q:
@@ -666,7 +671,6 @@ class meijerg(TupleParametersBase):
         # (carefully so as not to loose the branch information), and evaluate
         # G(z'**(1/r)) = G(z'**n) = G(z).
         from sympy.functions import exp_polar, ceiling
-        from sympy import Expr
         import mpmath
         znum = self.argument._eval_evalf(prec)
         if znum.has(exp_polar):
@@ -690,6 +694,10 @@ class meijerg(TupleParametersBase):
             v = mpmath.meijerg(ap, bq, z, r)
 
         return Expr._from_mpmath(v, prec)
+
+    def _eval_as_leading_term(self, x, logx=None, cdir=0):
+        from sympy import hyperexpand
+        return hyperexpand(self).as_leading_term(x, logx=logx, cdir=cdir)
 
     def integrand(self, s):
         """ Get the defining integrand D(s). """

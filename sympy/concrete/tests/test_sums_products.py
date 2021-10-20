@@ -388,6 +388,15 @@ def test_evalf_slow_series():
     assert NS(Sum((-1)**n / (2*n + 1)**3, (n, 0, oo)), 50) == NS(pi**3/32, 50)
 
 
+def test_evalf_oo_to_oo():
+    # There used to be an error in certain cases
+    # Does not evaluate, but at least do not throw an error
+    # Evaluates symbolically to 0, which is not correct
+    assert Sum(1/(n**2+1), (n, -oo, oo)).evalf() == Sum(1/(n**2+1), (n, -oo, oo))
+    # This evaluates if from 1 to oo and symbolically
+    assert Sum(1/(factorial(abs(n))), (n, -oo, -1)).evalf() == Sum(1/(factorial(abs(n))), (n, -oo, -1))
+
+
 def test_euler_maclaurin():
     # Exact polynomial sums with E-M
     def check_exact(f, a, b, m, n):
@@ -576,9 +585,9 @@ def test_Sum_doit():
     assert 0 == (s.doit() - n*(n+1)*(n-1)).factor()
 
     # Integer assumes finite
-    assert Sum(KroneckerDelta(x, y), (x, -oo, oo)).doit() == Piecewise((1, And(-oo <= y, y < oo)), (0, True))
+    assert Sum(KroneckerDelta(x, y), (x, -oo, oo)).doit() == Piecewise((1, And(-oo < y, y < oo)), (0, True))
     assert Sum(KroneckerDelta(m, n), (m, -oo, oo)).doit() == 1
-    assert Sum(m*KroneckerDelta(x, y), (x, -oo, oo)).doit() == Piecewise((m, And(-oo <= y, y < oo)), (0, True))
+    assert Sum(m*KroneckerDelta(x, y), (x, -oo, oo)).doit() == Piecewise((m, And(-oo < y, y < oo)), (0, True))
     assert Sum(x*KroneckerDelta(m, n), (m, -oo, oo)).doit() == x
     assert Sum(Sum(KroneckerDelta(m, n), (m, 1, 3)), (n, 1, 3)).doit() == 3
     assert Sum(Sum(KroneckerDelta(k, m), (m, 1, 3)), (n, 1, 3)).doit() == \
@@ -639,7 +648,6 @@ def test_diff():
 
 
 def test_hypersum():
-    from sympy import sin
     assert simplify(summation(x**n/fac(n), (n, 1, oo))) == -1 + exp(x)
     assert summation((-1)**n * x**(2*n) / fac(2*n), (n, 0, oo)) == cos(x)
     assert simplify(summation((-1)**n*x**(2*n + 1) /
@@ -988,6 +996,7 @@ def test_indexed_idx_sum():
     raises(ValueError, lambda: Product(A[k], (k, 2, oo)))
 
 
+@slow
 def test_is_convergent():
     # divergence tests --
     assert Sum(n/(2*n + 1), (n, 1, oo)).is_convergent() is S.false
@@ -1127,7 +1136,7 @@ def test_issue_14111():
 
 
 def test_issue_14484():
-    raises(NotImplementedError, lambda: Sum(sin(n)/log(log(n)), (n, 22, oo)).is_convergent())
+    assert Sum(sin(n)/log(log(n)), (n, 22, oo)).is_convergent() is S.false
 
 
 def test_issue_14640():
@@ -1327,9 +1336,13 @@ def test_issue_8016():
         cos(pi*n/2)*gamma(m + 1)/gamma(n/2 + 1)/gamma(m - n/2 + 1)
 
 
-@XFAIL
 def test_issue_14313():
     assert Sum(S.Half**floor(n/2), (n, 1, oo)).is_convergent()
+
+
+def test_issue_14563():
+    # The assertion was failing due to no assumptions methods in Sums and Product
+    assert 1 % Sum(1, (x, 0, 1)) == 1
 
 
 def test_issue_16735():
@@ -1424,6 +1437,12 @@ def test_matrixsymbol_summation_numerical_limits():
     assert Sum(A**n*B**n, (n, 1, 3)).doit() == ans
 
 
+def test_issue_21651():
+    i = Symbol('i')
+    a = Sum(floor(2*2**(-i)), (i, S.One, 2))
+    assert a.doit() == S.One
+
+
 @XFAIL
 def test_matrixsymbol_summation_symbolic_limits():
     N = Symbol('N', integer=True, positive=True)
@@ -1442,14 +1461,10 @@ def test_summation_by_residues():
     assert eval_sum_residue(1 / (x**2 + 1), (x, -oo, oo)) == pi/tanh(pi)
     assert eval_sum_residue(1 / x**6, (x, S(1), oo)) == pi**6/945
     assert eval_sum_residue(1 / (x**2 + 9), (x, -oo, oo)) == pi/(3*tanh(3*pi))
-    assert eval_sum_residue(1 / (x**2 + 1)**2, (x, -oo, oo)) == \
-        -pi*(-1/(2*tanh(pi)) - I*(-I*pi/tanh(pi) + \
-        I*pi*tanh(pi))/(4*tanh(pi)) + I*(-I*pi*tanh(pi) + \
-        I*pi/tanh(pi))/(4*tanh(pi)))
-    assert eval_sum_residue(x**2 / (x**2 + 1)**2, (x, -oo, oo)) == \
-        -pi*(-1/(2*tanh(pi)) - I*(-I*pi*tanh(pi) + \
-        I*pi/tanh(pi))/(4*tanh(pi)) + I*(-I*pi/tanh(pi) + \
-        I*pi*tanh(pi))/(4*tanh(pi)))
+    assert eval_sum_residue(1 / (x**2 + 1)**2, (x, -oo, oo)).cancel() == \
+        (-pi**2*tanh(pi)**2 + pi*tanh(pi) + pi**2)/(2*tanh(pi)**2)
+    assert eval_sum_residue(x**2 / (x**2 + 1)**2, (x, -oo, oo)).cancel() == \
+        (-pi**2 + pi*tanh(pi) + pi**2*tanh(pi)**2)/(2*tanh(pi)**2)
     assert eval_sum_residue(1 / (4*x**2 - 1), (x, -oo, oo)) == 0
     assert eval_sum_residue(x**2 / (x**2 - S(1)/4)**2, (x, -oo, oo)) == pi**2/2
     assert eval_sum_residue(1 / (4*x**2 - 1)**2, (x, -oo, oo)) == pi**2/8
@@ -1490,7 +1505,7 @@ def test_summation_by_residues():
     assert eval_sum_residue((-1)**x / x**2, (x, S(2), oo)) == 1 - pi**2/12
 
 
-@XFAIL
+@slow
 def test_summation_by_residues_failing():
     x = Symbol('x')
 

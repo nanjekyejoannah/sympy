@@ -196,6 +196,36 @@ class Relational(Boolean, EvalfMixin):
         #      b, evaluate=evaluate)))(*self.args, evaluate=False)
         return Relational.__new__(ops.get(self.func), *self.args)
 
+    @property
+    def weak(self):
+        """return the non-strict version of the inequality or self
+
+        EXAMPLES
+        ========
+
+        >>> from sympy.abc import x
+        >>> (x < 1).weak
+        x <= 1
+        >>> _.weak
+        x <= 1
+        """
+        return self
+
+    @property
+    def strict(self):
+        """return the strict version of the inequality or self
+
+        EXAMPLES
+        ========
+
+        >>> from sympy.abc import x
+        >>> (x <= 1).strict
+        x < 1
+        >>> _.strict
+        x < 1
+        """
+        return self
+
     def _eval_evalf(self, prec):
         return self.func(*[s._evalf(prec) for s in self.args])
 
@@ -258,7 +288,7 @@ class Relational(Boolean, EvalfMixin):
         If failing_expression is True, return the expression whose truth value
         was unknown."""
         if isinstance(other, Relational):
-            if self == other or self.reversed == other:
+            if other in (self, self.reversed):
                 return True
             a, b = self, other
             if a.func in (Eq, Ne) or b.func in (Eq, Ne):
@@ -336,7 +366,7 @@ class Relational(Boolean, EvalfMixin):
                         else:
                             r = r.func(x, -b / m)
                     else:
-                        r = r.func(b, S.zero)
+                        r = r.func(b, S.Zero)
                 except ValueError:
                     # maybe not a linear function, try polynomial
                     from sympy.polys import Poly, poly, PolynomialError, gcd
@@ -375,7 +405,7 @@ class Relational(Boolean, EvalfMixin):
                             r = r.func(lhsterm, -newexpr)
 
                     else:
-                        r = r.func(constant, S.zero)
+                        r = r.func(constant, S.Zero)
                 except ValueError:
                     pass
         # Did we get a simplified result?
@@ -961,7 +991,7 @@ class GreaterThan(_Greater):
        method to determine that a chained inequality is being built.
        Chained comparison operators are evaluated pairwise, using "and"
        logic (see
-       http://docs.python.org/2/reference/expressions.html#notin). This
+       http://docs.python.org/reference/expressions.html#not-in). This
        is done in an efficient way, so that each object being compared
        is only evaluated once and the comparison can short-circuit. For
        example, ``1 > 2 > 3`` is evaluated by Python as ``(1 > 2) and (2
@@ -997,6 +1027,9 @@ class GreaterThan(_Greater):
     def _eval_fuzzy_relation(cls, lhs, rhs):
         return is_ge(lhs, rhs)
 
+    @property
+    def strict(self):
+        return Gt(*self.args)
 
 Ge = GreaterThan
 
@@ -1011,6 +1044,9 @@ class LessThan(_Less):
     def _eval_fuzzy_relation(cls, lhs, rhs):
         return is_le(lhs, rhs)
 
+    @property
+    def strict(self):
+        return Lt(*self.args)
 
 Le = LessThan
 
@@ -1024,6 +1060,10 @@ class StrictGreaterThan(_Greater):
     @classmethod
     def _eval_fuzzy_relation(cls, lhs, rhs):
         return is_gt(lhs, rhs)
+
+    @property
+    def weak(self):
+        return Ge(*self.args)
 
 
 Gt = StrictGreaterThan
@@ -1039,6 +1079,9 @@ class StrictLessThan(_Less):
     def _eval_fuzzy_relation(cls, lhs, rhs):
         return is_lt(lhs, rhs)
 
+    @property
+    def weak(self):
+        return Le(*self.args)
 
 Lt = StrictLessThan
 
@@ -1410,7 +1453,7 @@ def is_eq(lhs, rhs, assumptions=None):
         # Compare e.g. zoo with 1+I*oo by comparing args
         arglhs = arg(lhs)
         argrhs = arg(rhs)
-        # Guard against Eq(nan, nan) -> Falsesymp
+        # Guard against Eq(nan, nan) -> False
         if not (arglhs == S.NaN and argrhs == S.NaN):
             return fuzzy_bool(is_eq(arglhs, argrhs, assumptions))
 

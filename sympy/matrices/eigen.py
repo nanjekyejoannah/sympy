@@ -10,7 +10,7 @@ from sympy.core.logic import fuzzy_and, fuzzy_or
 from sympy.core.numbers import Float
 from sympy.core.sympify import _sympify
 from sympy.functions.elementary.miscellaneous import sqrt
-from sympy.polys import roots, CRootOf, EX
+from sympy.polys import roots, CRootOf, ZZ, QQ, EX
 from sympy.polys.matrices import DomainMatrix
 from sympy.polys.matrices.eigen import dom_eigenvects, dom_eigenvects_to_sympy
 from sympy.simplify import nsimplify, simplify as _simplify
@@ -20,16 +20,6 @@ from .common import MatrixError, NonSquareMatrixError
 from .determinant import _find_reasonable_pivot
 
 from .utilities import _iszero
-
-
-def _eigenvals_triangular(M, multiple=False):
-    """A fast decision for eigenvalues of an upper or a lower triangular
-    matrix.
-    """
-    diagonal_entries = [M[i, i] for i in range(M.rows)]
-    if multiple:
-        return diagonal_entries
-    return dict(Counter(diagonal_entries))
 
 
 def _eigenvals_eigenvects_mpmath(M):
@@ -167,11 +157,10 @@ def _eigenvals(
     if not M.is_square:
         raise NonSquareMatrixError("{} must be a square matrix.".format(M))
 
-    if M.is_upper or M.is_lower:
-        return _eigenvals_triangular(M, multiple=multiple)
-
-    if all(x.is_number for x in M) and M.has(Float):
-        return _eigenvals_mpmath(M, multiple=multiple)
+    if M._rep.domain not in (ZZ, QQ):
+        # Skip this check for ZZ/QQ because it can be slow
+        if all(x.is_number for x in M) and M.has(Float):
+            return _eigenvals_mpmath(M, multiple=multiple)
 
     if rational:
         M = M.applyfunc(
@@ -199,9 +188,18 @@ eigenvals_error_message = \
 
 def _eigenvals_list(
     M, error_when_incomplete=True, simplify=False, **flags):
-    iblocks = M.connected_components()
+    iblocks = M.strongly_connected_components()
     all_eigs = []
+    is_dom = M._rep.domain in (ZZ, QQ)
     for b in iblocks:
+
+        # Fast path for a 1x1 block:
+        if is_dom and len(b) == 1:
+            index = b[0]
+            val = M[index, index]
+            all_eigs.append(val)
+            continue
+
         block = M[b, b]
 
         if isinstance(simplify, FunctionType):
@@ -234,9 +232,18 @@ def _eigenvals_list(
 
 def _eigenvals_dict(
     M, error_when_incomplete=True, simplify=False, **flags):
-    iblocks = M.connected_components()
+    iblocks = M.strongly_connected_components()
     all_eigs = {}
+    is_dom = M._rep.domain in (ZZ, QQ)
     for b in iblocks:
+
+        # Fast path for a 1x1 block:
+        if is_dom and len(b) == 1:
+            index = b[0]
+            val = M[index, index]
+            all_eigs[val] = all_eigs.get(val, 0) + 1
+            continue
+
         block = M[b, b]
 
         if isinstance(simplify, FunctionType):
@@ -583,11 +590,11 @@ def _eval_bidiag_hholder(M):
 
 def _bidiagonal_decomposition(M, upper=True):
     """
-    Returns (U,B,V.H)
+    Returns $(U,B,V.H)$ for
 
-    $A = UBV^{H}$
+    $$A = UBV^{H}$$
 
-    where A is the input matrix, and B is its Bidiagonalized form
+    where $A$ is the input matrix, and $B$ is its Bidiagonalized form
 
     Note: Bidiagonal Computation can hang for symbolic matrices.
 
@@ -600,19 +607,19 @@ def _bidiagonal_decomposition(M, upper=True):
     References
     ==========
 
-    1. Algorith 5.4.2, Matrix computations by Golub and Van Loan, 4th edition
-    2. Complex Matrix Bidiagonalization : https://github.com/vslobody/Householder-Bidiagonalization
+    .. [1] Algorithm 5.4.2, Matrix computations by Golub and Van Loan, 4th edition
+    .. [2] Complex Matrix Bidiagonalization, https://github.com/vslobody/Householder-Bidiagonalization
 
     """
 
-    if type(upper) is not bool:
+    if not isinstance(upper, bool):
         raise ValueError("upper must be a boolean")
 
-    if not upper:
-        X = _bidiagonal_decmp_hholder(M.H)
-        return X[2].H, X[1].H, X[0].H
+    if upper:
+        return _bidiagonal_decmp_hholder(M)
 
-    return _bidiagonal_decmp_hholder(M)
+    X = _bidiagonal_decmp_hholder(M.H)
+    return X[2].H, X[1].H, X[0].H
 
 
 def _bidiagonalize(M, upper=True):
@@ -630,18 +637,17 @@ def _bidiagonalize(M, upper=True):
     References
     ==========
 
-    1. Algorith 5.4.2, Matrix computations by Golub and Van Loan, 4th edition
-    2. Complex Matrix Bidiagonalization : https://github.com/vslobody/Householder-Bidiagonalization
+    .. [1] Algorithm 5.4.2, Matrix computations by Golub and Van Loan, 4th edition
+    .. [2] Complex Matrix Bidiagonalization : https://github.com/vslobody/Householder-Bidiagonalization
 
     """
 
-    if type(upper) is not bool:
+    if not isinstance(upper, bool):
         raise ValueError("upper must be a boolean")
 
-    if not upper:
-        return _eval_bidiag_hholder(M.H).H
-
-    return _eval_bidiag_hholder(M)
+    if upper:
+        return _eval_bidiag_hholder(M)
+    return _eval_bidiag_hholder(M.H).H
 
 
 def _diagonalize(M, reals_only=False, sort=False, normalize=False):
@@ -837,6 +843,8 @@ def _is_positive_semidefinite_cholesky(M):
 
         if M[k, k].is_negative or pivot_val.is_negative:
             return False
+        elif not (M[k, k].is_nonnegative and pivot_val.is_nonnegative):
+            return None
 
         if pivot > 0:
             M.col_swap(k, k+pivot)
@@ -1073,7 +1081,7 @@ def _jordan_form(M, calc_transform=True, *, chop=False):
 
     if has_floats:
         try:
-            max_prec = max(term._prec for term in M._mat if isinstance(term, Float))
+            max_prec = max(term._prec for term in M.values() if isinstance(term, Float))
         except ValueError:
             # if no term in the matrix is explicitly a Float calling max()
             # will throw a error so setting max_prec to default value of 53
@@ -1220,7 +1228,7 @@ def _jordan_form(M, calc_transform=True, *, chop=False):
         size_nums.reverse()
 
         block_structure.extend(
-            (eig, size) for size, num in size_nums for _ in range(num))
+            [(eig, size) for size, num in size_nums for _ in range(num)])
 
     jordan_form_size = sum(size for eig, size in block_structure)
 

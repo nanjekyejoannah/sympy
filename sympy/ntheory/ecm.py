@@ -209,8 +209,6 @@ def _ecm_one_factor(n, B1=10000, B2=100000, max_curve=200):
     k = 1
     for p in sieve.primerange(1, B1 + 1):
         k *= pow(p, integer_log(B1, p)[0])
-    g = 1
-
     while(curve <= max_curve):
         curve += 1
 
@@ -228,7 +226,7 @@ def _ecm_one_factor(n, B1=10000, B2=100000, max_curve=200):
             return gcd(4*u_3*v, n)
 
         a24 = (C + 2)*mod_inverse(4, n) % n
-        Q = Point(u_3 , pow(v, 3, n), a24, n)
+        Q = Point(u_3, pow(v, 3, n), a24, n)
         Q = Q.mont_ladder(k)
         g = gcd(Q.z_cord, n)
 

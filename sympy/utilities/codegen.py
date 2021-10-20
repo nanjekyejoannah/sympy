@@ -64,7 +64,7 @@ unsurmountable issues that can only be tackled with dedicated code generator:
 - Test other C compilers and libraries: gcc, tcc, libtcc, gcc+gsl, ...
 - Contiguous array arguments (sympy matrices)
 - Non-contiguous array arguments (sympy matrices)
-- ccode must raise an error when it encounters something that can not be
+- ccode must raise an error when it encounters something that cannot be
   translated into c. ccode(integrate(sin(x)/x, x)) does not make sense.
 - Complex numbers as input and output
 - A default complex datatype
@@ -605,8 +605,6 @@ class CodeGen:
                 # pack the simplified expressions back up with their left hand sides
                 expr = [Equality(e.lhs, rhs) for e, rhs in zip(expr, simplified)]
             else:
-                rhs = [expr]
-
                 if isinstance(expr, Equality):
                     common, simplified = cse(expr.rhs) #, ignore=in_out_args)
                     expr = Equality(expr.lhs, simplified[0])
@@ -2174,6 +2172,9 @@ def make_routine(name, expr, argument_sequence=None,
         Specify a target language.  The Routine itself should be
         language-agnostic but the precise way one is created, error
         checking, etc depend on the language.  [default: "F95"].
+
+    Notes
+    =====
 
     A decision about whether to use output arguments or return values is made
     depending on both the language and the particular mathematical expressions.

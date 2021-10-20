@@ -4,6 +4,7 @@ from sympy import (sympify, S, pi, sqrt, exp, Lambda, Indexed, besselk, gamma, I
                    Intersection, Matrix, symbols, Product, IndexedBase)
 from sympy.matrices import ImmutableMatrix, MatrixSymbol
 from sympy.matrices.expressions.determinant import det
+from sympy.matrices.expressions.matexpr import MatrixElement
 from sympy.stats.joint_rv import JointDistribution, JointPSpace, MarginalDistribution
 from sympy.stats.rv import _value_check, random_symbols
 
@@ -38,7 +39,7 @@ def marginal_distribution(rv, *indices):
 
     rv: A random variable with a joint probability distribution.
     indices: component indices or the indexed random symbol
-        for whom the joint distribution is to be calculated
+        for which the joint distribution is to be calculated
 
     Returns
     =======
@@ -87,7 +88,7 @@ def JointRV(symbol, pdf, _set=None):
     as the first argument
 
     NOTE: As of now, the set for each component for a `JointRV` is
-    equal to the set of all integers, which can not be changed.
+    equal to the set of all integers, which cannot be changed.
 
     Examples
     ========
@@ -138,19 +139,22 @@ class MultivariateNormalDistribution(JointDistribution):
     def check(mu, sigma):
         _value_check(mu.shape[0] == sigma.shape[0],
             "Size of the mean vector and covariance matrix are incorrect.")
-        #check if covariance matrix is positive definite or not.
+        #check if covariance matrix is positive semi definite or not.
         if not isinstance(sigma, MatrixSymbol):
-            _value_check(sigma.is_positive_definite,
-            "The covariance matrix must be positive definite. ")
+            _value_check(sigma.is_positive_semidefinite,
+            "The covariance matrix must be positive semi definite. ")
 
     def pdf(self, *args):
         mu, sigma = self.mu, self.sigma
         k = mu.shape[0]
-        args = ImmutableMatrix(args)
+        if len(args) == 1 and args[0].is_Matrix:
+            args = args[0]
+        else:
+            args = ImmutableMatrix(args)
         x = args - mu
-        return  S.One/sqrt((2*pi)**(k)*det(sigma))*exp(
-            Rational(-1, 2)*x.transpose()*(sigma.inv()*\
-                x))[0]
+        density = S.One/sqrt((2*pi)**(k)*det(sigma))*exp(
+            Rational(-1, 2)*x.transpose()*(sigma.inv()*x))
+        return MatrixElement(density, 0, 0)
 
     def _marginal_distribution(self, indices, sym):
         sym = ImmutableMatrix([Indexed(sym, i) for i in indices])
@@ -176,8 +180,9 @@ def MultivariateNormal(name, mu, sigma):
     ==========
 
     mu : List representing the mean or the mean vector
-    sigma : Positive definite square matrix
+    sigma : Positive semidefinite square matrix
         Represents covariance Matrix
+        If `sigma` is noninvertible then only sampling is supported currently
 
     Returns
     =======
@@ -188,17 +193,32 @@ def MultivariateNormal(name, mu, sigma):
     ========
 
     >>> from sympy.stats import MultivariateNormal, density, marginal_distribution
-    >>> from sympy import symbols
+    >>> from sympy import symbols, MatrixSymbol
     >>> X = MultivariateNormal('X', [3, 4], [[2, 1], [1, 2]])
     >>> y, z = symbols('y z')
     >>> density(X)(y, z)
-    sqrt(3)*exp((3/2 - y/2)*(2*y/3 - z/3 - 2/3) + (2 - z/2)*(-y/3 + 2*z/3 - 5/3))/(6*pi)
+    sqrt(3)*exp(-y**2/3 + y*z/3 + 2*y/3 - z**2/3 + 5*z/3 - 13/3)/(6*pi)
     >>> density(X)(1, 2)
     sqrt(3)*exp(-4/3)/(6*pi)
     >>> marginal_distribution(X, X[1])(y)
-    exp((2 - y/2)*(y/2 - 2))/(2*sqrt(pi))
+    exp(-(y - 4)**2/4)/(2*sqrt(pi))
     >>> marginal_distribution(X, X[0])(y)
-    exp((3/2 - y/2)*(y/2 - 3/2))/(2*sqrt(pi))
+    exp(-(y - 3)**2/4)/(2*sqrt(pi))
+
+    The example below shows that it is also possible to use
+    symbolic parameters to define the MultivariateNormal class.
+
+    >>> n = symbols('n', integer=True, positive=True)
+    >>> Sg = MatrixSymbol('Sg', n, n)
+    >>> mu = MatrixSymbol('mu', n, 1)
+    >>> obs = MatrixSymbol('obs', n, 1)
+    >>> X = MultivariateNormal('X', mu, Sg)
+
+    The density of a multivariate normal can be
+    calculated using a matrix argument, as shown below.
+
+    >>> density(X)(obs)
+    (exp(((1/2)*mu.T - (1/2)*obs.T)*Sg**(-1)*(-mu + obs))/sqrt((2*pi)**n*Determinant(Sg)))[0, 0]
 
     References
     ==========
@@ -239,9 +259,10 @@ class MultivariateLaplaceDistribution(JointDistribution):
         x = (mu_T*sigma_inv*mu)[0]
         y = (args_T*sigma_inv*args)[0]
         v = 1 - k/2
-        return S(2)/((2*pi)**(S(k)/2)*sqrt(det(sigma)))\
-        *(y/(2 + x))**(S(v)/2)*besselk(v, sqrt((2 + x)*(y)))\
-        *exp((args_T*sigma_inv*mu)[0])
+        return (2 * (y/(2 + x))**(v/2) * besselk(v, sqrt((2 + x)*y)) *
+                exp((args_T * sigma_inv * mu)[0]) /
+                ((2 * pi)**(k/2) * sqrt(det(sigma))))
+
 
 def MultivariateLaplace(name, mu, sigma):
     """

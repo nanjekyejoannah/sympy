@@ -417,7 +417,7 @@ class Integral(AddWithLimits):
         eval_kwargs = dict(meijerg=meijerg, risch=risch, manual=manual, heurisch=heurisch,
             conds=conds)
 
-        if conds not in ['separate', 'piecewise', 'none']:
+        if conds not in ('separate', 'piecewise', 'none'):
             raise ValueError('conds must be one of "separate", "piecewise", '
                              '"none", got: %s' % conds)
 
@@ -468,6 +468,13 @@ class Integral(AddWithLimits):
         reps = {}
         for xab in self.limits:
             if len(xab) != 3:
+                # it makes sense to just make
+                # all x real but in practice with the
+                # current state of integration...this
+                # doesn't work out well
+                # x = xab[0]
+                # if x not in reps and not x.is_real:
+                #     reps[x] = Dummy(real=True)
                 continue
             x, a, b = xab
             l = (a, b)
@@ -484,7 +491,7 @@ class Integral(AddWithLimits):
         if reps:
             undo = {v: k for k, v in reps.items()}
             did = self.xreplace(reps).doit(**hints)
-            if type(did) is tuple:  # when separate=True
+            if isinstance(did, tuple):  # when separate=True
                 did = tuple([i.xreplace(undo) for i in did])
             else:
                 did = did.xreplace(undo)
@@ -559,10 +566,8 @@ class Integral(AddWithLimits):
                         if res is not None:
                             f, cond = res
                             if conds == 'piecewise':
-                                ret = Piecewise(
-                                    (f, cond),
-                                    (self.func(
-                                    function, (x, a, b)), True))
+                                u = self.func(function, (x, a, b))
+                                return Piecewise((f, cond), (u, True))
                             elif conds == 'separate':
                                 if len(self.limits) != 1:
                                     raise ValueError(filldedent('''
@@ -602,7 +607,11 @@ class Integral(AddWithLimits):
                             function = ret
                             continue
 
-            if not isinstance(antideriv, Integral) and antideriv is not None:
+            final = hints.get('final', True)
+            # dotit may be iterated but floor terms making atan and acot
+            # continous should only be added in the final round
+            if (final and not isinstance(antideriv, Integral) and
+                antideriv is not None):
                 for atan_term in antideriv.atoms(atan):
                     atan_arg = atan_term.args[0]
                     # Checking `atan_arg` to be linear combination of `tan` or `cot`
@@ -795,7 +804,7 @@ class Integral(AddWithLimits):
         return rv
 
     def _eval_integral(self, f, x, meijerg=None, risch=None, manual=None,
-                       heurisch=None, conds='piecewise'):
+                       heurisch=None, conds='piecewise',final=None):
         """
         Calculate the anti-derivative to the function f(x).
 
@@ -1098,6 +1107,7 @@ class Integral(AddWithLimits):
                             # method was set to False already
                             new_eval_kwargs = eval_kwargs
                             new_eval_kwargs["manual"] = False
+                            new_eval_kwargs["final"] = False
                             result = result.func(*[
                                 arg.doit(**new_eval_kwargs) if
                                 arg.has(Integral) else arg
@@ -1139,7 +1149,7 @@ class Integral(AddWithLimits):
 
         return Add(*parts)
 
-    def _eval_lseries(self, x, logx, cdir=0):
+    def _eval_lseries(self, x, logx=None, cdir=0):
         expr = self.as_dummy()
         symb = x
         for l in expr.limits:
@@ -1149,7 +1159,7 @@ class Integral(AddWithLimits):
         for term in expr.function.lseries(symb, logx):
             yield integrate(term, *expr.limits)
 
-    def _eval_nseries(self, x, n, logx, cdir=0):
+    def _eval_nseries(self, x, n, logx=None, cdir=0):
         expr = self.as_dummy()
         symb = x
         for l in expr.limits:
@@ -1161,7 +1171,7 @@ class Integral(AddWithLimits):
         order = [o.subs(symb, x) for o in order]
         return integrate(terms, *expr.limits) + Add(*order)*x
 
-    def _eval_as_leading_term(self, x, cdir=0):
+    def _eval_as_leading_term(self, x, logx=None, cdir=0):
         series_gen = self.args[0].lseries(x)
         for leading_term in series_gen:
             if leading_term != 0:
@@ -1318,30 +1328,6 @@ class Integral(AddWithLimits):
             raise ValueError("Unknown method %s" % method)
         return result.doit() if evaluate else result
 
-    def _sage_(self):
-        import sage.all as sage
-        f, limits = self.function._sage_(), list(self.limits)
-        for limit_ in limits:
-            if len(limit_) == 1:
-                x = limit_[0]
-                f = sage.integral(f,
-                                    x._sage_(),
-                                    hold=True)
-            elif len(limit_) == 2:
-                x, b = limit_
-                f = sage.integral(f,
-                                    x._sage_(),
-                                    b._sage_(),
-                                    hold=True)
-            else:
-                x, a, b = limit_
-                f = sage.integral(f,
-                                  (x._sage_(),
-                                    a._sage_(),
-                                    b._sage_()),
-                                    hold=True)
-        return f
-
     def principal_value(self, **kwargs):
         """
         Compute the Cauchy Principal Value of the definite integral of a real function in the given interval
@@ -1384,12 +1370,12 @@ class Integral(AddWithLimits):
             raise ValueError("The lower_limit must be smaller than or equal to the upper_limit to calculate "
                              "cauchy's principal value. Also, a and b need to be comparable.")
         if a == b:
-            return 0
+            return S.Zero
         r = Dummy('r')
         f = self.function
         singularities_list = [s for s in singularities(f, x) if s.is_comparable and a <= s <= b]
         for i in singularities_list:
-            if (i == b) or (i == a):
+            if i in (a, b):
                 raise ValueError(
                     'The principal value is not defined in the given interval due to singularity at %d.' % (i))
         F = integrate(f, x, **kwargs)

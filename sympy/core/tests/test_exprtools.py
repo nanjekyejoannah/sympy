@@ -449,7 +449,7 @@ def test_monotonic_sign():
     assert F(-(p - 1)*q - 1).is_negative
 
 def test_issue_17256():
-    from sympy import Symbol, Range, Sum
+    from sympy import Range
     x = Symbol('x')
     s1 = Sum(x + 1, (x, 1, 9))
     s2 = Sum(x + 1, (x, Range(1, 10)))
@@ -464,3 +464,8 @@ def test_issue_17256():
     r1 = s1.xreplace({x:a})
     r2 = s2.xreplace({x:a})
     assert r1 == r2
+
+def test_issue_21623():
+    from sympy import MatrixSymbol
+    M = MatrixSymbol('X', 2, 2)
+    assert gcd_terms(M[0,0], 1) == M[0,0]

@@ -1,6 +1,3 @@
-# References :
-# http://www.euclideanspace.com/maths/algebra/realNormedAlgebra/quaternions/
-# https://en.wikipedia.org/wiki/Quaternion
 from sympy import S, Rational
 from sympy import re, im, conjugate, sign
 from sympy import sqrt, sin, cos, acos, exp, ln
@@ -8,6 +5,7 @@ from sympy import trigsimp
 from sympy import integrate
 from sympy import Matrix
 from sympy import sympify
+from sympy.core.evalf import prec_to_dps
 from sympy.core.expr import Expr
 
 
@@ -35,6 +33,12 @@ class Quaternion(Expr):
     x + x**3*i + x*j + x**2*k
     >>> q2
     (3 + 4*I) + (2 + 5*I)*i + 0*j + (7 + 8*I)*k
+
+    References
+    ==========
+
+    .. [1] http://www.euclideanspace.com/maths/algebra/realNormedAlgebra/quaternions/
+    .. [2] https://en.wikipedia.org/wiki/Quaternion
 
     """
     _op_priority = 11.0
@@ -115,7 +119,11 @@ class Quaternion(Expr):
         c = y * s
         d = z * s
 
-        return cls(a, b, c, d).normalize()
+        # note that this quaternion is already normalized by construction:
+        # c^2 + (s*x)^2 + (s*y)^2 + (s*z)^2 = c^2 + s^2*(x^2 + y^2 + z^2) = c^2 + s^2 * 1 = c^2 + s^2 = 1
+        # so, what we return is a normalized quaternion
+
+        return cls(a, b, c, d)
 
     @classmethod
     def from_rotation_matrix(cls, M):
@@ -489,6 +497,31 @@ class Quaternion(Expr):
         d = q.d * acos(q.a / q_norm) / vector_norm
 
         return Quaternion(a, b, c, d)
+
+    def _eval_evalf(self, prec):
+        """Returns the floating point approximations (decimal numbers) of the quaternion.
+
+        Returns
+        =======
+
+        Quaternion
+            Floating point approximations of quaternion(self)
+
+        Examples
+        ========
+
+        >>> from sympy.algebras.quaternion import Quaternion
+        >>> from sympy import sqrt
+        >>> q = Quaternion(1/sqrt(1), 1/sqrt(2), 1/sqrt(3), 1/sqrt(4))
+        >>> q.evalf()
+        1.00000000000000
+        + 0.707106781186547*i
+        + 0.577350269189626*j
+        + 0.500000000000000*k
+
+        """
+        nprec = prec_to_dps(prec)
+        return Quaternion(*[arg.evalf(n=nprec) for arg in self.args])
 
     def pow_cos_sin(self, p):
         """Computes the pth power in the cos-sin form.

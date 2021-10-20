@@ -2,7 +2,6 @@ import itertools
 
 from sympy.core import S
 from sympy.core.containers import Tuple
-from sympy.core.function import _coeff_isneg
 from sympy.core.mul import Mul
 from sympy.core.numbers import Number, Rational
 from sympy.core.power import Pow
@@ -48,7 +47,7 @@ class PrettyPrinter(Printer):
 
         if not isinstance(self._settings['imaginary_unit'], str):
             raise TypeError("'imaginary_unit' must a string, not {}".format(self._settings['imaginary_unit']))
-        elif self._settings['imaginary_unit'] not in ["i", "j"]:
+        elif self._settings['imaginary_unit'] not in ("i", "j"):
             raise ValueError("'imaginary_unit' must be either 'i' or 'j', not '{}'".format(self._settings['imaginary_unit']))
 
     def emptyPrinter(self, expr):
@@ -446,7 +445,6 @@ class PrettyPrinter(Printer):
         firstterm = True
         s = None
         for lim in integral.limits:
-            x = lim[0]
             # Create bar based on the height of the argument
             h = arg.height()
             H = h + 2
@@ -572,7 +570,7 @@ class PrettyPrinter(Printer):
                 if not wid or len(s) > wid:
                     return s
                 need = wid - len(s)
-                if how == '<^>' or how == "<" or how not in list('<^>'):
+                if how in ('<^>', "<") or how not in list('<^>'):
                     return s + ' '*need
                 half = need//2
                 lead = ' '*half
@@ -786,7 +784,6 @@ class PrettyPrinter(Printer):
 
     def _print_MatrixElement(self, expr):
         from sympy.matrices import MatrixSymbol
-        from sympy import Symbol
         if (isinstance(expr.parent, MatrixSymbol)
                 and expr.i.is_number and expr.j.is_number):
             return self._print(
@@ -866,7 +863,7 @@ class PrettyPrinter(Printer):
                 s = pform     # First element
             else:
                 coeff = item.as_coeff_mmul()[0]
-                if _coeff_isneg(S(coeff)):
+                if S(coeff).could_extract_minus_sign():
                     s = prettyForm(*stringPict.next(s, ' '))
                     pform = self._print(item)
                 else:
@@ -973,6 +970,21 @@ class PrettyPrinter(Printer):
             args[i] = prettyForm(*self._print(a).parens())
         return prettyForm.__mul__(*args)
 
+    def _print_MIMOSeries(self, expr):
+        from sympy.physics.control.lti import MIMOParallel
+        args = list(expr.args)
+        pretty_args = []
+        for i, a in enumerate(reversed(args)):
+            if (isinstance(a, MIMOParallel) and len(expr.args) > 1):
+                expression = self._print(a)
+                expression.baseline = expression.height()//2
+                pretty_args.append(prettyForm(*expression.parens()))
+            else:
+                expression = self._print(a)
+                expression.baseline = expression.height()//2
+                pretty_args.append(expression)
+        return prettyForm.__mul__(*pretty_args)
+
     def _print_Parallel(self, expr):
         s = None
         for item in expr.args:
@@ -980,38 +992,89 @@ class PrettyPrinter(Printer):
             if s is None:
                 s = pform     # First element
             else:
+                s = prettyForm(*stringPict.next(s))
+                s.baseline = s.height()//2
                 s = prettyForm(*stringPict.next(s, ' + '))
                 s = prettyForm(*stringPict.next(s, pform))
         return s
 
+    def _print_MIMOParallel(self, expr):
+        from sympy.physics.control.lti import TransferFunctionMatrix
+        s = None
+        for item in expr.args:
+            pform = self._print(item)
+            if s is None:
+                s = pform     # First element
+            else:
+                s = prettyForm(*stringPict.next(s))
+                s.baseline = s.height()//2
+                s = prettyForm(*stringPict.next(s, ' + '))
+                if isinstance(item, TransferFunctionMatrix):
+                    s.baseline = s.height() - 1
+                s = prettyForm(*stringPict.next(s, pform))
+            # s.baseline = s.height()//2
+        return s
+
     def _print_Feedback(self, expr):
-        from sympy.physics.control import TransferFunction, Parallel, Series
+        from sympy.physics.control import TransferFunction, Series
 
-        num, tf = expr.num, TransferFunction(1, 1, expr.num.var)
+        num, tf = expr.sys1, TransferFunction(1, 1, expr.var)
         num_arg_list = list(num.args) if isinstance(num, Series) else [num]
-        den_arg_list = list(expr.den.args) if isinstance(expr.den, Series) else [expr.den]
+        den_arg_list = list(expr.sys2.args) if \
+            isinstance(expr.sys2, Series) else [expr.sys2]
 
-        if isinstance(num, Series) and isinstance(expr.den, Series):
-            den = Parallel(tf, Series(*num_arg_list, *den_arg_list))
-        elif isinstance(num, Series) and isinstance(expr.den, TransferFunction):
-            if expr.den == tf:
-                den = Parallel(tf, Series(*num_arg_list))
+        if isinstance(num, Series) and isinstance(expr.sys2, Series):
+            den = Series(*num_arg_list, *den_arg_list)
+        elif isinstance(num, Series) and isinstance(expr.sys2, TransferFunction):
+            if expr.sys2 == tf:
+                den = Series(*num_arg_list)
             else:
-                den = Parallel(tf, Series(*num_arg_list, expr.den))
-        elif isinstance(num, TransferFunction) and isinstance(expr.den, Series):
+                den = Series(*num_arg_list, expr.sys2)
+        elif isinstance(num, TransferFunction) and isinstance(expr.sys2, Series):
             if num == tf:
-                den = Parallel(tf, Series(*den_arg_list))
+                den = Series(*den_arg_list)
             else:
-                den = Parallel(tf, Series(num, *den_arg_list))
+                den = Series(num, *den_arg_list)
         else:
             if num == tf:
-                den = Parallel(tf, *den_arg_list)
-            elif expr.den == tf:
-                den = Parallel(tf, *num_arg_list)
+                den = Series(*den_arg_list)
+            elif expr.sys2 == tf:
+                den = Series(*num_arg_list)
             else:
-                den = Parallel(tf, Series(*num_arg_list, *den_arg_list))
+                den = Series(*num_arg_list, *den_arg_list)
 
-        return self._print(num)/self._print(den)
+        denom = prettyForm(*stringPict.next(self._print(tf)))
+        denom.baseline = denom.height()//2
+        denom = prettyForm(*stringPict.next(denom, ' + ')) if expr.sign == -1 \
+            else prettyForm(*stringPict.next(denom, ' - '))
+        denom = prettyForm(*stringPict.next(denom, self._print(den)))
+
+        return self._print(num)/denom
+
+    def _print_MIMOFeedback(self, expr):
+        from sympy.physics.control import MIMOSeries, TransferFunctionMatrix
+
+        inv_mat = self._print(MIMOSeries(expr.sys2, expr.sys1))
+        plant = self._print(expr.sys1)
+        _feedback = prettyForm(*stringPict.next(inv_mat))
+        _feedback = prettyForm(*stringPict.right("I + ", _feedback)) if expr.sign == -1 \
+            else prettyForm(*stringPict.right("I - ", _feedback))
+        _feedback = prettyForm(*stringPict.parens(_feedback))
+        _feedback.baseline = 0
+        _feedback = prettyForm(*stringPict.right(_feedback, '-1 '))
+        _feedback.baseline = _feedback.height()//2
+        _feedback = prettyForm.__mul__(_feedback, prettyForm(" "))
+        if isinstance(expr.sys1, TransferFunctionMatrix):
+            _feedback.baseline = _feedback.height() - 1
+        _feedback = prettyForm(*stringPict.next(_feedback, plant))
+        return _feedback
+
+    def _print_TransferFunctionMatrix(self, expr):
+        mat = self._print(expr._expr_mat)
+        mat.baseline = mat.height() - 1
+        subscript = greek_unicode['tau'] if self._use_unicode else r'{t}'
+        mat = prettyForm(*mat.right(subscript))
+        return mat
 
     def _print_BasisDependent(self, expr):
         from sympy.vector import Vector
@@ -1573,7 +1636,12 @@ class PrettyPrinter(Printer):
 
     def _print_Heaviside(self, e):
         func_name = greek_unicode['theta'] if self._use_unicode else 'Heaviside'
-        return self._print_Function(e, func_name=func_name)
+        if e.args[1]==1/2:
+            pform = prettyForm(*self._print(e.args[0]).parens())
+            pform = prettyForm(*pform.left(func_name))
+            return pform
+        else:
+            return self._print_Function(e, func_name=func_name)
 
     def _print_fresnels(self, e):
         return self._print_Function(e, func_name="S")
@@ -1794,7 +1862,7 @@ class PrettyPrinter(Printer):
             return prettyForm(binding=prettyForm.NEG, *p)
 
         for i, term in enumerate(terms):
-            if term.is_Mul and _coeff_isneg(term):
+            if term.is_Mul and term.could_extract_minus_sign():
                 coeff, other = term.as_coeff_mul(rational=False)
                 if coeff == -1:
                     negterm = Mul(*other, evaluate=False)
@@ -2636,7 +2704,6 @@ class PrettyPrinter(Printer):
 
     def _print_DiagramGrid(self, grid):
         from sympy.matrices import Matrix
-        from sympy import Symbol
         matrix = Matrix([[grid[i, j] if grid[i, j] else Symbol(" ")
                           for j in range(grid.width)]
                          for i in range(grid.height)])

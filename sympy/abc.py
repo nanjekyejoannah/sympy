@@ -91,17 +91,17 @@ _greek = list(greeks) # make a copy, so we can mutate it
 _greek.remove("lambda")
 _greek.append("lamda")
 
-ns = {}  # type: Dict[str, Any]
+ns: Dict[str, Any] = {}
 exec('from sympy import *', ns)
-_clash1 = {}
-_clash2 = {}
+_clash1: Dict[str, Any] = {}
+_clash2: Dict[str, Any] = {}
 while ns:
     _k, _ = ns.popitem()
     if _k in _greek:
-        _clash2[_k] = Symbol(_k)
+        _clash2[_k] = None
         _greek.remove(_k)
     elif _k in _latin:
-        _clash1[_k] = Symbol(_k)
+        _clash1[_k] = None
         _latin.remove(_k)
 _clash = {}
 _clash.update(_clash1)

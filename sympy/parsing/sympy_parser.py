@@ -13,7 +13,7 @@ from sympy.assumptions.ask import AssumptionKeys
 from sympy.core.compatibility import iterable
 from sympy.core.basic import Basic
 from sympy.core import Symbol
-from sympy.core.function import arity
+from sympy.core.function import arity, Function
 from sympy.utilities.misc import filldedent, func_name
 
 
@@ -415,7 +415,7 @@ def split_symbols_custom(predicate):
                     while i < len(symbol):
                         char = symbol[i]
                         if char in local_dict or char in global_dict:
-                            result.extend([(NAME, "%s" % char)])
+                            result.append((NAME, "%s" % char))
                         elif char.isdigit():
                             char = [char]
                             for i in range(i + 1, len(symbol)):
@@ -550,22 +550,23 @@ def auto_symbol(tokens, local_dict, global_dict):
             name = tokVal
 
             if (name in ['True', 'False', 'None']
-                or iskeyword(name)
-                # Don't convert attribute access
-                or (prevTok[0] == OP and prevTok[1] == '.')
-                # Don't convert keyword arguments
-                or (prevTok[0] == OP and prevTok[1] in ('(', ',')
-                    and nextTokNum == OP and nextTokVal == '=')):
+                    or iskeyword(name)
+                    # Don't convert attribute access
+                    or (prevTok[0] == OP and prevTok[1] == '.')
+                    # Don't convert keyword arguments
+                    or (prevTok[0] == OP and prevTok[1] in ('(', ',')
+                        and nextTokNum == OP and nextTokVal == '=')
+                    # the name has already been defined
+                    or name in local_dict and local_dict[name] is not None):
                 result.append((NAME, name))
                 continue
             elif name in local_dict:
-                if isinstance(local_dict[name], Symbol) and nextTokVal == '(':
-                    result.extend([(NAME, 'Function'),
-                                   (OP, '('),
-                                   (NAME, repr(str(local_dict[name]))),
-                                   (OP, ')')])
+                local_dict.setdefault(None, set()).add(name)
+                if nextTokVal == '(':
+                    local_dict[name] = Function(name)
                 else:
-                    result.append((NAME, name))
+                    local_dict[name] = Symbol(name)
+                result.append((NAME, name))
                 continue
             elif name in global_dict:
                 obj = global_dict[name]
@@ -615,7 +616,7 @@ def lambda_notation(tokens, local_dict, global_dict):
                 if tokNum == OP and tokVal == ':':
                     tokVal = ','
                     flag = True
-                if not flag and tokNum == OP and tokVal in ['*', '**']:
+                if not flag and tokNum == OP and tokVal in ('*', '**'):
                     raise TokenError("Starred arguments in lambda not supported")
                 if flag:
                     result.insert(-1, (tokNum, tokVal))
@@ -813,10 +814,10 @@ def rationalize(tokens, local_dict, global_dict):
 def _transform_equals_sign(tokens, local_dict, global_dict):
     """Transforms the equals sign ``=`` to instances of Eq.
 
-    This is a helper function for `convert_equals_signs`.
+    This is a helper function for ``convert_equals_signs``.
     Works with expressions containing one equals sign and no
-    nesting. Expressions like `(1=2)=False` won't work with this
-    and should be used with `convert_equals_signs`.
+    nesting. Expressions like ``(1=2)=False`` will not work with this
+    and should be used with ``convert_equals_signs``.
 
     Examples: 1=2     to Eq(1,2)
               1*2=x   to Eq(1*2, x)
@@ -843,11 +844,11 @@ def convert_equals_signs(result, local_dict, global_dict):
     """ Transforms all the equals signs ``=`` to instances of Eq.
 
     Parses the equals signs in the expression and replaces them with
-    appropriate Eq instances.Also works with nested equals signs.
+    appropriate Eq instances. Also works with nested equals signs.
 
     Does not yet play well with function arguments.
-    For example, the expression `(x=y)` is ambiguous and can be interpreted
-    as x being an argument to a function and `convert_equals_signs` won't
+    For example, the expression ``(x=y)`` is ambiguous and can be interpreted
+    as x being an argument to a function and ``convert_equals_signs`` will not
     work for this.
 
     See also
@@ -1013,8 +1014,15 @@ def parse_expr(s, local_dict=None, transformations=standard_transformations,
         code = compile(evaluateFalse(code), '<string>', 'eval')
 
     try:
-        return eval_expr(code, local_dict, global_dict)
+        rv = eval_expr(code, local_dict, global_dict)
+        # restore neutral definitions for names
+        for i in local_dict.pop(None, ()):
+            local_dict[i] = None
+        return rv
     except Exception as e:
+        # restore neutral definitions for names
+        for i in local_dict.pop(None, ()):
+            local_dict[i] = None
         raise e from ValueError(f"Error from parse_expr with transformed code: {code!r}")
 
 
@@ -1041,6 +1049,14 @@ class EvaluateFalseTransformer(ast.NodeTransformer):
         ast.BitAnd: 'And',
         ast.BitXor: 'Not',
     }
+    functions = (
+        'Abs', 'im', 're', 'sign', 'arg', 'conjugate',
+        'acos', 'acot', 'acsc', 'asec', 'asin', 'atan',
+        'acosh', 'acoth', 'acsch', 'asech', 'asinh', 'atanh',
+        'cos', 'cot', 'csc', 'sec', 'sin', 'tan',
+        'cosh', 'coth', 'csch', 'sech', 'sinh', 'tanh',
+        'exp', 'ln', 'log', 'sqrt', 'cbrt',
+    )
 
     def flatten(self, args, func):
         result = []
@@ -1108,3 +1124,9 @@ class EvaluateFalseTransformer(ast.NodeTransformer):
 
             return new_node
         return node
+
+    def visit_Call(self, node):
+        new_node = self.generic_visit(node)
+        if isinstance(node.func, ast.Name) and node.func.id in self.functions:
+            new_node.keywords.append(ast.keyword(arg='evaluate', value=ast.NameConstant(value=False, ctx=ast.Load())))
+        return new_node

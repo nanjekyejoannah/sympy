@@ -334,7 +334,6 @@ def alternatives(*rules):
     return _alternatives
 
 def constant_rule(integral):
-    integrand, symbol = integral
     return ConstantRule(integral.integrand, *integral)
 
 def power_rule(integral):
@@ -529,7 +528,7 @@ def _parts_rule(integrand, symbol):
 
     def pull_out_u(*functions):
         def pull_out_u_rl(integrand):
-            if any([integrand.has(f) for f in functions]):
+            if any(integrand.has(f) for f in functions):
                 args = [arg for arg in integrand.args
                         if any(isinstance(arg, cls) for cls in functions)]
                 if args:
@@ -683,7 +682,7 @@ def parts_rule(integral):
 
 def trig_rule(integral):
     integrand, symbol = integral
-    if isinstance(integrand, sympy.sin) or isinstance(integrand, sympy.cos):
+    if isinstance(integrand, (sympy.sin, sympy.cos)):
         arg = integrand.args[0]
 
         if not isinstance(arg, sympy.Symbol):
@@ -1233,7 +1232,7 @@ def integral_steps(integrand, symbol, **options):
     >>> print(repr(integral_steps(sin(x), x))) \
     # doctest: +NORMALIZE_WHITESPACE
     TrigRule(func='sin', arg=x, context=sin(x), symbol=x)
-    >>> print(repr(integral_steps((x**2 + 3)**2 , x))) \
+    >>> print(repr(integral_steps((x**2 + 3)**2, x))) \
     # doctest: +NORMALIZE_WHITESPACE
     RewriteRule(rewritten=x**4 + 6*x**2 + 9,
     substep=AddRule(substeps=[PowerRule(base=x, exp=4, context=x**4, symbol=x),

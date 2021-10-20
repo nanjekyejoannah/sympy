@@ -445,7 +445,7 @@ class AssignmentBase(Basic):
             if not rhs_is_mat:
                 raise ValueError("Cannot assign a scalar to a matrix.")
             elif lhs.shape != rhs.shape:
-                raise ValueError("Dimensions of lhs and rhs don't align.")
+                raise ValueError("Dimensions of lhs and rhs do not align.")
         elif rhs_is_mat and not lhs_is_mat:
             raise ValueError("Cannot assign a matrix to a scalar.")
 
@@ -1051,7 +1051,7 @@ class Type(Token):
     def _check(self, value):
         pass
 
-    def cast_check(self, value, rtol=None, atol=0, limits=None, precision_targets=None):
+    def cast_check(self, value, rtol=None, atol=0, precision_targets=None):
         """ Casts a value to the data type of the instance.
 
         Parameters
@@ -1062,8 +1062,6 @@ class Type(Token):
             Relative tolerance. (will be deduced if not given).
         atol : floating point number
             Absolute tolerance (in addition to ``rtol``).
-        limits : dict
-            Values given by ``limits.h``, x86/IEEE754 defaults if not given.
         type_aliases : dict
             Maps substitutions for Type, e.g. {integer: int64, real: float32}
 

@@ -2,8 +2,8 @@ from sympy.core import sympify
 from sympy.core.add import Add
 from sympy.core.cache import cacheit
 from sympy.core.function import (
-    Function, ArgumentIndexError, _coeff_isneg,
-    expand_mul, FunctionClass)
+    Function, ArgumentIndexError,
+    expand_mul, FunctionClass, PoleError)
 from sympy.core.logic import fuzzy_and, fuzzy_not, fuzzy_or
 from sympy.core.mul import Mul
 from sympy.core.numbers import Integer, Rational
@@ -32,6 +32,10 @@ class ExpBase(Function):
     unbranched = True
     _singularities = (S.ComplexInfinity,)
 
+    @property
+    def kind(self):
+        return self.exp.kind
+
     def inverse(self, argindex=1):
         """
         Returns the inverse function of ``exp(x)``.
@@ -57,7 +61,7 @@ class ExpBase(Function):
         exp = self.exp
         neg_exp = exp.is_negative
         if not neg_exp and not (-exp).is_negative:
-            neg_exp = _coeff_isneg(exp)
+            neg_exp = exp.could_extract_minus_sign()
         if neg_exp:
             return S.One, self.func(-exp)
         return self, S.One
@@ -473,19 +477,21 @@ class exp(ExpBase, metaclass=ExpMeta):
     def _eval_nseries(self, x, n, logx, cdir=0):
         # NOTE Please see the comment at the beginning of this file, labelled
         #      IMPORTANT.
-        from sympy import ceiling, limit, oo, Order, powsimp, Wild, expand_complex
+        from sympy import ceiling, limit, Order, powsimp, expand_complex
         arg = self.exp
         arg_series = arg._eval_nseries(x, n=n, logx=logx)
         if arg_series.is_Order:
             return 1 + arg_series
         arg0 = limit(arg_series.removeO(), x, 0)
-        if arg0 in [-oo, oo]:
+        if arg0 is S.NegativeInfinity:
+            return Order(x**n, x)
+        if arg0 is S.Infinity:
             return self
         t = Dummy("t")
         nterms = n
         try:
-            cf = Order(arg.as_leading_term(x), x).getn()
-        except NotImplementedError:
+            cf = Order(arg.as_leading_term(x, logx=logx), x).getn()
+        except (NotImplementedError, PoleError):
             cf = 0
         if cf and cf > 0:
             nterms = ceiling(n/cf)
@@ -512,26 +518,14 @@ class exp(ExpBase, metaclass=ExpMeta):
             l.append(g.removeO())
         return Add(*l)
 
-    def _eval_as_leading_term(self, x, cdir=0):
-        from sympy import Order
-        arg = self.args[0]
-        if arg.is_Add:
-            return Mul(*[exp(f).as_leading_term(x) for f in arg.args])
-        arg_1 = arg.as_leading_term(x)
-        if Order(x, x).contains(arg_1):
-            return S.One
-        if Order(1, x).contains(arg_1):
-            return exp(arg_1)
-        ####################################################
-        # The correct result here should be 'None'.        #
-        # Indeed arg in not bounded as x tends to 0.       #
-        # Consequently the series expansion does not admit #
-        # the leading term.                                #
-        # For compatibility reasons, the return value here #
-        # is the original function, i.e. exp(arg),         #
-        # instead of None.                                 #
-        ####################################################
-        return exp(arg)
+    def _eval_as_leading_term(self, x, logx=None, cdir=0):
+        arg = self.args[0].cancel().as_leading_term(x, logx=logx)
+        arg0 = arg.subs(x, 0)
+        if arg0 is S.NaN:
+            arg0 = arg.limit(x, 0)
+        if arg0.is_infinite is False:
+            return exp(arg0)
+        raise PoleError("Cannot expand %s around 0" % (self))
 
     def _eval_rewrite_as_sin(self, arg, **kwargs):
         from sympy import sin
@@ -569,9 +563,9 @@ def match_real_imag(expr):
 
     ``match_real_imag`` returns a tuple containing the real and imaginary
     parts of expr or (None, None) if direct matching is not possible. Contrary
-    to ``re()``, ``im()``, ``as_real_imag()``, this helper won't force things
+    to ``re()``, ``im()``, ``as_real_imag()``, this helper will not force things
     by returning expressions themselves containing ``re()`` or ``im()`` and it
-    doesn't expand its argument either.
+    does not expand its argument either.
 
     """
     r_, i_ = expr.as_independent(S.ImaginaryUnit, as_Add=True)
@@ -988,7 +982,7 @@ class log(Function):
         try:
             a, b = arg.leadterm(x)
             s = arg.nseries(x, n=n+b, logx=logx)
-        except (ValueError, NotImplementedError):
+        except (ValueError, NotImplementedError, PoleError):
             s = arg.nseries(x, n=n, logx=logx)
             while s.is_Order:
                 n += 1
@@ -1038,17 +1032,23 @@ class log(Function):
             res -= 2*I*S.Pi
         return res + Order(x**n, x)
 
-    def _eval_as_leading_term(self, x, cdir=0):
-        from sympy import I, im
-        arg = self.args[0].together()
-        x0 = arg.subs(x, 0)
+    def _eval_as_leading_term(self, x, logx=None, cdir=0):
+        from sympy import I, im, re
+        arg0 = self.args[0].together()
+
+        arg = arg0.as_leading_term(x, cdir=cdir)
+        x0 = arg0.subs(x, 0)
+        if (x0 is S.NaN and logx is None):
+            x0 = arg.limit(x, 0, dir='-' if re(cdir).is_negative else '+')
+        if x0 in (S.NegativeInfinity, S.Infinity):
+            raise PoleError("Cannot expand %s around 0" % (self))
         if x0 == 1:
-            return (arg - S.One).as_leading_term(x)
+            return (arg0 - S.One).as_leading_term(x)
         if cdir != 0:
-            cdir = self.args[0].dir(x, cdir)
-        if x0.is_real and x0.is_negative and im(cdir) < 0:
-            return self.func(x0) -2*I*S.Pi
-        return self.func(arg.as_leading_term(x))
+            cdir = arg0.dir(x, cdir)
+        if x0.is_real and x0.is_negative and im(cdir).is_negative:
+            return self.func(x0) - 2*I*S.Pi
+        return self.func(arg)
 
 
 class LambertW(Function):
@@ -1173,6 +1173,14 @@ class LambertW(Function):
         else:
             return s.is_algebraic
 
+    def _eval_as_leading_term(self, x, logx=None, cdir=0):
+        if len(self.args) == 1:
+            arg = self.args[0]
+            arg0 = arg.subs(x, 0).cancel()
+            if not arg0.is_zero:
+                return self.func(arg0)
+            return arg.as_leading_term(x)
+
     def _eval_nseries(self, x, n, logx, cdir=0):
         if len(self.args) == 1:
             from sympy import Order, ceiling, expand_multinomial
@@ -1194,8 +1202,6 @@ class LambertW(Function):
     def _eval_is_zero(self):
         x = self.args[0]
         if len(self.args) == 1:
-            k = S.Zero
+            return x.is_zero
         else:
-            k = self.args[1]
-        if x.is_zero and k.is_zero:
-            return True
+            return fuzzy_and([x.is_zero, self.args[1].is_zero])

@@ -1,18 +1,19 @@
 from collections import defaultdict, OrderedDict
 from itertools import (
     combinations, combinations_with_replacement, permutations,
-    product, product as cartes
+    product
 )
-import random
+
+# For backwards compatibility
+from itertools import product as cartes # noqa: F401
 from operator import gt
 
-from sympy.core import Basic
+from sympy.core.decorators import deprecated
+from sympy.core.traversal import postorder_traversal as _postorder_traversal
 
 # this is the logical location of these functions
-from sympy.core.compatibility import (as_int, is_sequence, iterable, ordered)
-from sympy.core.compatibility import default_sort_key  # noqa: F401
-
-import sympy
+from sympy.core.compatibility import as_int, is_sequence, ordered
+from sympy.core.compatibility import iterable, default_sort_key  # noqa: F401
 
 from sympy.utilities.enumerative import (
     multiset_partitions_taocp, list_visitor, MultisetPartitionTraverser)
@@ -54,7 +55,7 @@ def is_palindromic(s, i=0, j=None):
     return all(s[i + k] == s[j - 1 - k] for k in range(m))
 
 
-def flatten(iterable, levels=None, cls=None):
+def flatten(iterable, levels=None, cls=None):  # noqa: F811
     """
     Recursively denest iterable containers.
 
@@ -323,154 +324,6 @@ def multiset(seq):
     return dict(rv)
 
 
-def postorder_traversal(node, keys=None):
-    """
-    Do a postorder traversal of a tree.
-
-    This generator recursively yields nodes that it has visited in a postorder
-    fashion. That is, it descends through the tree depth-first to yield all of
-    a node's children's postorder traversal before yielding the node itself.
-
-    Parameters
-    ==========
-
-    node : sympy expression
-        The expression to traverse.
-    keys : (default None) sort key(s)
-        The key(s) used to sort args of Basic objects. When None, args of Basic
-        objects are processed in arbitrary order. If key is defined, it will
-        be passed along to ordered() as the only key(s) to use to sort the
-        arguments; if ``key`` is simply True then the default keys of
-        ``ordered`` will be used (node count and default_sort_key).
-
-    Yields
-    ======
-    subtree : sympy expression
-        All of the subtrees in the tree.
-
-    Examples
-    ========
-
-    >>> from sympy.utilities.iterables import postorder_traversal
-    >>> from sympy.abc import w, x, y, z
-
-    The nodes are returned in the order that they are encountered unless key
-    is given; simply passing key=True will guarantee that the traversal is
-    unique.
-
-    >>> list(postorder_traversal(w + (x + y)*z)) # doctest: +SKIP
-    [z, y, x, x + y, z*(x + y), w, w + z*(x + y)]
-    >>> list(postorder_traversal(w + (x + y)*z, keys=True))
-    [w, z, x, y, x + y, z*(x + y), w + z*(x + y)]
-
-
-    """
-    if isinstance(node, Basic):
-        args = node.args
-        if keys:
-            if keys != True:
-                args = ordered(args, keys, default=False)
-            else:
-                args = ordered(args)
-        for arg in args:
-            yield from postorder_traversal(arg, keys)
-    elif iterable(node):
-        for item in node:
-            yield from postorder_traversal(item, keys)
-    yield node
-
-
-def interactive_traversal(expr):
-    """Traverse a tree asking a user which branch to choose. """
-    from sympy.printing import pprint
-
-    RED, BRED = '\033[0;31m', '\033[1;31m'
-    GREEN, BGREEN = '\033[0;32m', '\033[1;32m'
-    YELLOW, BYELLOW = '\033[0;33m', '\033[1;33m'  # noqa
-    BLUE, BBLUE = '\033[0;34m', '\033[1;34m'      # noqa
-    MAGENTA, BMAGENTA = '\033[0;35m', '\033[1;35m'# noqa
-    CYAN, BCYAN = '\033[0;36m', '\033[1;36m'      # noqa
-    END = '\033[0m'
-
-    def cprint(*args):
-        print("".join(map(str, args)) + END)
-
-    def _interactive_traversal(expr, stage):
-        if stage > 0:
-            print()
-
-        cprint("Current expression (stage ", BYELLOW, stage, END, "):")
-        print(BCYAN)
-        pprint(expr)
-        print(END)
-
-        if isinstance(expr, Basic):
-            if expr.is_Add:
-                args = expr.as_ordered_terms()
-            elif expr.is_Mul:
-                args = expr.as_ordered_factors()
-            else:
-                args = expr.args
-        elif hasattr(expr, "__iter__"):
-            args = list(expr)
-        else:
-            return expr
-
-        n_args = len(args)
-
-        if not n_args:
-            return expr
-
-        for i, arg in enumerate(args):
-            cprint(GREEN, "[", BGREEN, i, GREEN, "] ", BLUE, type(arg), END)
-            pprint(arg)
-            print()
-
-        if n_args == 1:
-            choices = '0'
-        else:
-            choices = '0-%d' % (n_args - 1)
-
-        try:
-            choice = input("Your choice [%s,f,l,r,d,?]: " % choices)
-        except EOFError:
-            result = expr
-            print()
-        else:
-            if choice == '?':
-                cprint(RED, "%s - select subexpression with the given index" %
-                       choices)
-                cprint(RED, "f - select the first subexpression")
-                cprint(RED, "l - select the last subexpression")
-                cprint(RED, "r - select a random subexpression")
-                cprint(RED, "d - done\n")
-
-                result = _interactive_traversal(expr, stage)
-            elif choice in ['d', '']:
-                result = expr
-            elif choice == 'f':
-                result = _interactive_traversal(args[0], stage + 1)
-            elif choice == 'l':
-                result = _interactive_traversal(args[-1], stage + 1)
-            elif choice == 'r':
-                result = _interactive_traversal(random.choice(args), stage + 1)
-            else:
-                try:
-                    choice = int(choice)
-                except ValueError:
-                    cprint(BRED,
-                           "Choice must be a number in %s range\n" % choices)
-                    result = _interactive_traversal(expr, stage)
-                else:
-                    if choice < 0 or choice >= n_args:
-                        cprint(BRED, "Choice must be in %s range\n" % choices)
-                        result = _interactive_traversal(expr, stage)
-                    else:
-                        result = _interactive_traversal(args[choice], stage + 1)
-
-        return result
-
-    return _interactive_traversal(expr, 0)
 
 
 def ibin(n, bits=None, str=False):
@@ -525,7 +378,7 @@ def ibin(n, bits=None, str=False):
         bits = 0
     else:
         try:
-             bits = as_int(bits)
+            bits = as_int(bits)
         except ValueError:
             bits = -1
         else:
@@ -664,7 +517,7 @@ def filter_symbols(iterator, exclude):
         if s not in exclude:
             yield s
 
-def numbered_symbols(prefix='x', cls=None, start=0, exclude=[], *args, **assumptions):
+def numbered_symbols(prefix='x', cls=None, start=0, exclude=(), *args, **assumptions):
     """
     Generate an infinite stream of Symbols consisting of a prefix and
     increasing subscripts provided that they do not occur in ``exclude``.
@@ -692,7 +545,7 @@ def numbered_symbols(prefix='x', cls=None, start=0, exclude=[], *args, **assumpt
     if cls is None:
         # We can't just make the default cls=Symbol because it isn't
         # imported yet.
-        from sympy import Symbol
+        from sympy.core import Symbol
         cls = Symbol
 
     while True:
@@ -848,7 +701,7 @@ def common_prefix(*seqs):
     >>> common_prefix([1, 2, 3], [1, 3, 5])
     [1]
     """
-    if any(not s for s in seqs):
+    if not all(seqs):
         return []
     elif len(seqs) == 1:
         return seqs[0]
@@ -875,7 +728,7 @@ def common_suffix(*seqs):
     [3]
     """
 
-    if any(not s for s in seqs):
+    if not all(seqs):
         return []
     elif len(seqs) == 1:
         return seqs[0]
@@ -1070,6 +923,16 @@ def strongly_connected_components(G):
             B -> D
         }
 
+    .. graphviz::
+
+        digraph {
+            A -> B
+            A -> C
+            B -> C
+            C -> B
+            B -> D
+        }
+
     where vertices are the letters A, B, C and D. This graph can be encoded
     using Python's elementary data structures as follows::
 
@@ -1119,6 +982,27 @@ def strongly_connected_components(G):
     Gmap = {vi: [] for vi in V}
     for v1, v2 in E:
         Gmap[v1].append(v2)
+    return _strongly_connected_components(V, Gmap)
+
+
+def _strongly_connected_components(V, Gmap):
+    """More efficient internal routine for strongly_connected_components"""
+    #
+    # Here V is an iterable of vertices and Gmap is a dict mapping each vertex
+    # to a list of neighbours e.g.:
+    #
+    #   V = [0, 1, 2, 3]
+    #   Gmap = {0: [2, 3], 1: [0]}
+    #
+    # For a large graph these data structures can often be created more
+    # efficiently then those expected by strongly_connected_components() which
+    # in this case would be
+    #
+    #   V = [0, 1, 2, 3]
+    #   Gmap = [(0, 2), (0, 3), (1, 0)]
+    #
+    # XXX: Maybe this should be the recommended function to use instead...
+    #
 
     # Non-recursive Tarjan's algorithm:
     lowlink = {}
@@ -1185,6 +1069,13 @@ def connected_components(G):
 
 
     Given an undirected graph::
+
+        graph {
+            A -- B
+            C -- D
+        }
+
+    .. graphviz::
 
         graph {
             A -- B
@@ -1296,7 +1187,8 @@ def least_rotation(x, key=None):
     .. [1] https://en.wikipedia.org/wiki/Lexicographically_minimal_string_rotation
 
     '''
-    if key is None: key = sympy.Id
+    from sympy import Id
+    if key is None: key = Id
     S = x + x      # Concatenate string to it self to avoid modular arithmetic
     f = [-1] * len(S)     # Failure function
     k = 0       # Least rotation of string found so far
@@ -1344,12 +1236,16 @@ def multiset_combinations(m, n, g=None):
     """
     if g is None:
         if type(m) is dict:
-            if n > sum(m.values()):
+            if any(as_int(v) < 0 for v in m.values()):
+                raise ValueError('counts cannot be negative')
+            N = sum(m.values())
+            if n > N:
                 return
             g = [[k, m[k]] for k in ordered(m)]
         else:
             m = list(m)
-            if n > len(m):
+            N = len(m)
+            if n > N:
                 return
             try:
                 m = multiset(m)
@@ -1358,7 +1254,10 @@ def multiset_combinations(m, n, g=None):
                 m = list(ordered(m))
                 g = [list(i) for i in group(m, multiple=False)]
         del m
-    if sum(v for k, v in g) < n or not n:
+    else:
+        # not checking counts since g is intended for internal use
+        N = sum(v for k, v in g)
+    if n > N or not n:
         yield []
     else:
         for i, (k, v) in enumerate(g):
@@ -1370,7 +1269,6 @@ def multiset_combinations(m, n, g=None):
                     rv = [k]*v + j
                     if len(rv) == n:
                         yield rv
-
 
 def multiset_permutations(m, size=None, g=None):
     """
@@ -1390,6 +1288,8 @@ def multiset_permutations(m, size=None, g=None):
     """
     if g is None:
         if type(m) is dict:
+            if any(as_int(v) < 0 for v in m.values()):
+                raise ValueError('counts cannot be negative')
             g = [[k, m[k]] for k in ordered(m)]
         else:
             m = list(ordered(m))
@@ -1398,7 +1298,7 @@ def multiset_permutations(m, size=None, g=None):
     do = [gi for gi in g if gi[1] > 0]
     SUM = sum([gi[1] for gi in do])
     if not do or size is not None and (size > SUM or size < 1):
-        if size < 1:
+        if not do and size is None or size == 0:
             yield []
         return
     elif size == 1:
@@ -1770,14 +1670,6 @@ def partitions(n, m=None, k=None, size=False):
         m = n
     else:
         m = min(m, n)
-
-    if n == 0:
-        if size:
-            yield 1, {0: 1}
-        else:
-            yield {0: 1}
-        return
-
     k = min(k or n, n)
 
     n, m, k = as_int(n), as_int(m), as_int(k)
@@ -1997,14 +1889,14 @@ def binary_partitions(n):
 
     """
     from math import ceil, log
-    pow = int(2**(ceil(log(n, 2))))
-    sum = 0
+    power = int(2**(ceil(log(n, 2))))
+    acc = 0
     partition = []
-    while pow:
-        if sum + pow <= n:
-            partition.append(pow)
-            sum += pow
-        pow >>= 1
+    while power:
+        if acc + power <= n:
+            partition.append(power)
+            acc += power
+        power >>= 1
 
     last_num = len(partition) - 1 - (n & 1)
     while last_num >= 0:
@@ -2048,8 +1940,8 @@ def has_dups(seq):
     from sympy.sets.sets import Set
     if isinstance(seq, (dict, set, Dict, Set)):
         return False
-    uniq = set()
-    return any(True for s in seq if s in uniq or uniq.add(s))
+    unique = set()
+    return any(True for s in seq if s in unique or unique.add(s))
 
 
 def has_variety(seq):
@@ -2401,15 +2293,15 @@ def generate_oriented_forest(n):
 
 
 def minlex(seq, directed=True, key=None):
-    """
+    r"""
     Return the rotation of the sequence in which the lexically smallest
-    elements appear first, e.g. `cba ->acb`.
+    elements appear first, e.g. `cba \rightarrow acb`.
 
     The sequence returned is a tuple, unless the input sequence is a string
     in which case a string is returned.
 
     If ``directed`` is False then the smaller of the sequence and the
-    reversed sequence is returned, e.g. `cba -> abc`.
+    reversed sequence is returned, e.g. `cba \rightarrow abc`.
 
     If ``key`` is not None then it is used to extract a comparison key from each element in iterable.
 
@@ -2435,8 +2327,8 @@ def minlex(seq, directed=True, key=None):
     ('c', 'a', 'bb', 'aaa')
 
     """
-
-    if key is None: key = sympy.Id
+    from sympy import Id
+    if key is None: key = Id
     best = rotate_left(seq, least_rotation(seq, key=key))
     if not directed:
         rseq = seq[::-1]
@@ -2621,7 +2513,7 @@ def permute_signs(t):
     >>> list(permute_signs((0, 1, 2)))
     [(0, 1, 2), (0, -1, 2), (0, 1, -2), (0, -1, -2)]
     """
-    for signs in cartes(*[(1, -1)]*(len(t) - t.count(0))):
+    for signs in product(*[(1, -1)]*(len(t) - t.count(0))):
         signs = list(signs)
         yield type(t)([i*signs.pop() if i else i for i in t])
 
@@ -2680,8 +2572,20 @@ def roundrobin(*iterables):
     pending = len(iterables)
     while pending:
         try:
-            for next in nexts:
-                yield next()
+            for nxt in nexts:
+                yield nxt()
         except StopIteration:
             pending -= 1
             nexts = itertools.cycle(itertools.islice(nexts, pending))
+
+
+postorder_traversal = deprecated(
+    useinstead="sympy.core.traversal.postorder_traversal",
+    deprecated_since_version="1.10", issue=22288)(_postorder_traversal)
+
+
+@deprecated(useinstead="sympy.interactive.traversal.interactive_traversal",
+            issue=22288, deprecated_since_version="1.10")
+def interactive_traversal(expr):
+    from sympy.interactive.traversal import interactive_traversal as _interactive_traversal
+    return _interactive_traversal(expr)

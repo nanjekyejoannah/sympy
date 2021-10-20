@@ -97,17 +97,17 @@ def itermonomials(variables, max_degrees, min_degrees=None):
             if len(min_degrees) != n:
                 raise ValueError('Argument sizes do not match')
             if any(i < 0 for i in min_degrees):
-                raise ValueError("min_degrees can't contain negative numbers")
+                raise ValueError("min_degrees cannot contain negative numbers")
         total_degree = False
     else:
         max_degree = max_degrees
         if max_degree < 0:
-            raise ValueError("max_degrees can't be negative")
+            raise ValueError("max_degrees cannot be negative")
         if min_degrees is None:
             min_degree = 0
         else:
             if min_degrees < 0:
-                raise ValueError("min_degrees can't be negative")
+                raise ValueError("min_degrees cannot be negative")
             min_degree = min_degrees
         total_degree = True
     if total_degree:
@@ -127,7 +127,7 @@ def itermonomials(variables, max_degrees, min_degrees=None):
                 for variable in item:
                     if variable != 1:
                         powers[variable] += 1
-                if max(powers.values()) >= min_degree:
+                if sum(powers.values()) >= min_degree:
                     monomials_list_comm.append(Mul(*item))
             yield from set(monomials_list_comm)
         else:
@@ -139,7 +139,7 @@ def itermonomials(variables, max_degrees, min_degrees=None):
                 for variable in item:
                     if variable != 1:
                         powers[variable] += 1
-                if max(powers.values()) >= min_degree:
+                if sum(powers.values()) >= min_degree:
                     monomials_list_non_comm.append(Mul(*item))
             yield from set(monomials_list_non_comm)
     else:
@@ -552,7 +552,7 @@ class Monomial(PicklableWithSlots):
 
         if not gens:
             raise ValueError(
-                "can't convert %s to an expression without generators" % self)
+                "Cannot convert %s to an expression without generators" % self)
 
         return Mul(*[ gen**exp for gen, exp in zip(gens, self.exponents) ])
 

@@ -5,7 +5,6 @@ from sympy.core.relational import Equality, Eq, Ne
 from sympy.core.singleton import S
 from sympy.core.symbol import (Dummy, symbols)
 from sympy.functions import Piecewise
-from sympy.functions.elementary.miscellaneous import Max, Min
 from sympy.functions.elementary.trigonometric import sin
 from sympy.sets.sets import (EmptySet, Interval, Union)
 from sympy.simplify.simplify import simplify
@@ -15,16 +14,15 @@ from sympy.logic.boolalg import (
     distribute_or_over_and, distribute_and_over_or,
     eliminate_implications, is_nnf, is_cnf, is_dnf, simplify_logic,
     to_nnf, to_cnf, to_dnf, to_int_repr, bool_map, true, false,
-    BooleanAtom, is_literal, term_to_integer, integer_to_term,
+    BooleanAtom, is_literal, term_to_integer,
     truth_table, as_Boolean, to_anf, is_anf, distribute_xor_over_and,
     anf_coeffs, ANFform, bool_minterm, bool_maxterm, bool_monomial,
-    _check_pair, _convert_to_varsSOP, _convert_to_varsPOS)
+    _check_pair, _convert_to_varsSOP, _convert_to_varsPOS, Exclusive,)
 from sympy.assumptions.cnf import CNF
 
 from sympy.testing.pytest import raises, XFAIL, slow
-from sympy.utilities.iterables import cartes
 
-from itertools import combinations, permutations
+from itertools import combinations, permutations, product
 
 A, B, C, D = symbols('A:D')
 a, b, c, d, e, w, x, y, z = symbols('a:e w:z')
@@ -227,6 +225,13 @@ def test_Equivalent():
     assert Equivalent(Equality(A, B), Equality(B, A)) is true
 
 
+def test_Exclusive():
+    assert Exclusive(False, False, False) is true
+    assert Exclusive(True, False, False) is true
+    assert Exclusive(True, True, False) is false
+    assert Exclusive(True, True, True) is false
+
+
 def test_equals():
     assert Not(Or(A, B)).equals(And(Not(A), Not(B))) is True
     assert Equivalent(A, B).equals((A >> B) & (B >> A)) is True
@@ -236,7 +241,7 @@ def test_equals():
     raises(NotImplementedError, lambda: (A & B).equals(A > B))
 
 
-def test_simplification():
+def test_simplification_boolalg():
     """
     Test working of simplification methods.
     """
@@ -306,6 +311,9 @@ def test_simplification():
     e = And(A, b)
     assert simplify_logic(e) == A & ~x & ~y
     raises(ValueError, lambda: simplify_logic(A & (B | C), form='blabla'))
+    assert simplify(Or(x <= y, And(x < y, z))) == (x <= y)
+    assert simplify(Or(x <= y, And(y > x, z))) == (x <= y)
+    assert simplify(Or(x >= y, And(y < x, z))) == (x >= y)
 
     # Check that expressions with nine variables or more are not simplified
     # (without the force-flag)
@@ -754,7 +762,7 @@ def test_true_false():
     assert ~true is false
     assert ~false is true
 
-    for T, F in cartes([True, true], [False, false]):
+    for T, F in product((True, true), (False, false)):
         assert And(T, F) is false
         assert And(F, T) is false
         assert And(F, F) is false
@@ -919,11 +927,19 @@ def test_term_to_integer():
     assert term_to_integer('0010101000111001') == 10809
 
 
-def test_integer_to_term():
-    assert integer_to_term(777) == [1, 1, 0, 0, 0, 0, 1, 0, 0, 1]
-    assert integer_to_term(123, 3) == [1, 1, 1, 1, 0, 1, 1]
-    assert integer_to_term(456, 16) == [0, 0, 0, 0, 0, 0, 0, 1,
-                                        1, 1, 0, 0, 1, 0, 0, 0]
+def test_issue_21971():
+    a, b, c, d = symbols('a b c d')
+    f = a & b & c | a & c
+    assert f.subs(a & c, d) == b & d | d
+    assert f.subs(a & b & c, d) == a & c | d
+
+    f = (a | b | c) & (a | c)
+    assert f.subs(a | c, d) == (b | d) & d
+    assert f.subs(a | b | c, d) == (a | c) & d
+
+    f = (a ^ b ^ c) & (a ^ c)
+    assert f.subs(a ^ c, d) == (b ^ d) & d
+    assert f.subs(a ^ b ^ c, d) == (a ^ c) & d
 
 
 def test_truth_table():
@@ -1073,12 +1089,6 @@ def test_relational_simplification():
     assert And(x >= y, x < y).simplify() == S.false
     assert Or(x >= y, Eq(y, x)).simplify() == (x >= y)
     assert And(x >= y, Eq(y, x)).simplify() == Eq(x, y)
-    assert Or(Eq(x, y), x >= y, w < y, z < y).simplify() == \
-        Or(x >= y, y > Min(w, z))
-    assert And(Eq(x, y), x >= y, w < y, y >= z, z < y).simplify() == \
-        And(Eq(x, y), y > Max(w, z))
-    assert Or(Eq(x, y), x >= 1, 2 < y, y >= 5, z < y).simplify() == \
-        (Eq(x, y) | (x >= 1) | (y > Min(2, z)))
     assert And(Eq(x, y), x >= 1, 2 < y, y >= 5, z < y).simplify() == \
         (Eq(x, y) & (x >= 1) & (y >= 5) & (y > z))
     assert (Eq(x, y) & Eq(d, e) & (x >= y) & (d >= e)).simplify() == \
@@ -1198,6 +1208,19 @@ def test_bool_monomial():
 def test_check_pair():
     assert _check_pair([0, 1, 0], [0, 1, 1]) == 2
     assert _check_pair([0, 1, 0], [1, 1, 1]) == -1
+
+
+def test_issue_19114():
+    expr = (B & C) | (A & ~C) | (~A & ~B)
+    result = to_dnf(expr, simplify=True)
+    assert result == expr
+
+
+def test_issue_20870():
+    result = SOPform([a, b, c, d], [1, 2, 3, 4, 5, 6, 8, 9, 11, 12, 14, 15])
+    expected = ((d & ~b) | (a & b & c) | (a & ~c & ~d) |
+                (b & ~a & ~c) | (c & ~a & ~d))
+    assert result == expected
 
 
 def test_convert_to_varsSOP():

@@ -234,7 +234,7 @@ class NumPyPrinter(PythonCodePrinter):
 
     def _print_Identity(self, expr):
         shape = expr.shape
-        if all([dim.is_Integer for dim in shape]):
+        if all(dim.is_Integer for dim in shape):
             return "%s(%s)" % (self._module_format(self._module + '.eye'), self._print(expr.shape[0]))
         else:
             raise NotImplementedError("Symbolic matrix dimensions are not yet supported for identity matrices")
@@ -356,7 +356,7 @@ class SciPyPrinter(NumPyPrinter):
 
     def _print_SparseMatrix(self, expr):
         i, j, data = [], [], []
-        for (r, c), v in expr._smat.items():
+        for (r, c), v in expr.todok().items():
             i.append(r)
             j.append(c)
             data.append(v)
