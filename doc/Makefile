@@ -43,6 +43,7 @@ clean:
 	-rm -rf _build
 	-rm -rf sphinx
 	-rm -f $(PDFFILES)
+	-rm -rf doc/src/_autosummary
 
 html: SPHINXOPTS += -W --keep-going
 html: _build/logo/sympy-notailtext-favicon.ico
