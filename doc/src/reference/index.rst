@@ -18,7 +18,7 @@ while those for the private API are auto generated.
 **Content**
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
 
    public/index.rst
    
