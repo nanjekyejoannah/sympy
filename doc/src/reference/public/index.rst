@@ -10,7 +10,7 @@ core subpackage are documented below.
 **Content**
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
 
    basics/index.rst
    codegeneration/index.rst
